@@ -9,10 +9,10 @@ services:
       - --memory=1G
       - --overprovisioned
       - --node-id=0
-      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
     ports:
-      - "9092:9092"
+      - "19092:19092"
       - "9644:9644"
     healthcheck:
       test: ["CMD", "rpk", "cluster", "health"]
