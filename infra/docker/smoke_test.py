@@ -1,7 +1,7 @@
 from kafka import KafkaProducer, KafkaConsumer
 
 TOPIC = "vehicle-positions-raw"
-BROKER = "localhost:9092"
+BROKER = "localhost:19092"
 
 
 def test_produce_and_consume_message():
