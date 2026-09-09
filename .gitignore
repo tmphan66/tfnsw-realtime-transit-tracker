@@ -225,3 +225,6 @@ infra/terraform/.terraform/
 infra/terraform/terraform.tfstate
 infra/terraform/terraform.tfstate.backup
 infra/terraform/*.tfvars
+
+# Flink
+flink-job/*.jar
