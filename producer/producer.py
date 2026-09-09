@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from kafka import KafkaProducer
 from google.transit import gtfs_realtime_pb2
 
+import base64
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -43,7 +45,8 @@ def run():
             feed = decode_feed(raw)
 
             for entity in feed.entity:
-                producer.send(TOPIC, entity.SerializeToString())
+                encoded = base64.b64encode(entity.SerializeToString())
+                producer.send(TOPIC, encoded)
 
             producer.flush()
             logger.info("Published %d vehicle updates", len(feed.entity))
