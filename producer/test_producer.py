@@ -26,7 +26,7 @@ def test_fetch_raw_feed_calls_correct_url(mock_get):
     mock_response.raise_for_status = MagicMock()
     mock_get.return_value = mock_response
 
-    result = fetch_raw_feed()
+    result = fetch_raw_feed("https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses")
 
     assert result == b"fake-bytes"
     called_url = mock_get.call_args[0][0]
