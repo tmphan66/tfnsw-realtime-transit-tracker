@@ -3,7 +3,9 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from google.transit import gtfs_realtime_pb2
-from flink_job import decode_vehicle_entity, decode_trip_update_entity, haversine_distance_meters, DynamoDBSinkFunction
+from flink_job import decode_vehicle_entity, decode_trip_update_entity, haversine_distance_meters
+from flink_job import DynamoDBSinkFunction
+from flink_job import S3ParquetSinkFunction, S3_BUCKET_NAME
 
 
 def test_decode_vehicle_entity_parses_base64_encoded_vehicle():
@@ -72,3 +74,26 @@ def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
     written_item = mock_table.put_item.call_args[1]["Item"]
     assert written_item["vehicle_id"] == "bus-1"
     assert written_item["latitude"] == Decimal("-33.87")
+
+from flink_job import S3ParquetSinkFunction, S3_BUCKET_NAME
+
+@patch("flink_job.boto3.client")
+def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
+    mock_s3 = MagicMock()
+    mock_boto3_client.return_value = mock_s3
+
+    sink = S3ParquetSinkFunction()
+    sink.open(None)
+    sink.buffer = [{
+        "vehicle_id": "bus-1", "route_id": "333", "trip_id": "t1",
+        "latitude": -33.87, "longitude": 151.21, "timestamp": 1700000000,
+        "delay_seconds": 10, "is_bunching": False,
+    }]
+
+    sink._flush_to_s3()
+
+    mock_s3.put_object.assert_called_once()
+    call_kwargs = mock_s3.put_object.call_args[1]
+    assert call_kwargs["Bucket"] == S3_BUCKET_NAME
+    assert call_kwargs["Key"].endswith(".parquet")
+    assert sink.buffer == []
