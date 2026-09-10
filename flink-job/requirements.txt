@@ -1,1 +1,2 @@
 apache-flink==1.18.1
+boto3

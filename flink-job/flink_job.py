@@ -1,10 +1,12 @@
 import os
 import math
 import base64
+import boto3
+from decimal import Decimal
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
-from pyflink.datastream.functions import KeyedCoProcessFunction, KeyedProcessFunction, RuntimeContext
+from pyflink.datastream.functions import KeyedCoProcessFunction, KeyedProcessFunction, RuntimeContext, MapFunction
 from pyflink.datastream.state import ValueStateDescriptor, MapStateDescriptor
 from pyflink.common.typeinfo import Types
 from google.transit import gtfs_realtime_pb2
@@ -14,6 +16,10 @@ JAR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flink-sql-c
 # Two vehicles on the same route within this distance and time window are flagged as "bunching"
 BUNCHING_DISTANCE_METERS = 500
 BUNCHING_TIME_WINDOW_SECONDS = 120
+
+# DynamoDB table for storing last known vehicle state
+DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
+AWS_REGION = "ap-southeast-2"
 
 
 def decode_vehicle_entity(raw_str: str) -> dict:
@@ -143,6 +149,26 @@ class BunchingDetectionFunction(KeyedProcessFunction):
         result["is_bunching"] = is_bunching
         yield result
 
+class DynamoDBSinkFunction(MapFunction):
+    """
+    Writes each enriched vehicle record to DynamoDB table.
+    """
+
+    def open(self, runtime_context: RuntimeContext):
+        self.table = boto3.resource("dynamodb", region_name=AWS_REGION).Table(DYNAMODB_TABLE_NAME)
+
+    def map(self, value):
+        self.table.put_item(Item={
+            "vehicle_id": value["vehicle_id"],
+            "route_id": value["route_id"],
+            "trip_id": value["trip_id"],
+            "latitude": Decimal(str(value["latitude"])),
+            "longitude": Decimal(str(value["longitude"])),
+            "timestamp": value["timestamp"],
+            "delay_seconds": value["delay_seconds"],
+            "is_bunching": value["is_bunching"],
+        })
+        return value
 
 def run():
     env = StreamExecutionEnvironment.get_execution_environment()
@@ -175,14 +201,19 @@ def run():
         .filter(lambda v: v is not None)
     )
 
+    # Key the two streams by trip_id and connect them to attach delay information to vehicle positions
     keyed_positions = positions_stream.key_by(lambda v: v["trip_id"], key_type=Types.STRING())
     keyed_trip_updates = trip_updates_stream.key_by(lambda v: v["trip_id"], key_type=Types.STRING())
 
     enriched = keyed_positions.connect(keyed_trip_updates).process(AttachDelayFunction())
 
+    # Key the enriched stream by route_id and detect bunching
     keyed_by_route = enriched.key_by(lambda v: v["route_id"], key_type=Types.STRING())
     with_bunching = keyed_by_route.process(BunchingDetectionFunction())
-    with_bunching.print()
+
+    # Write the final enriched records to DynamoDB
+    written_to_dynamodb = with_bunching.map(DynamoDBSinkFunction())
+    written_to_dynamodb.print()
 
     env.execute("attach_delay_job")
 
