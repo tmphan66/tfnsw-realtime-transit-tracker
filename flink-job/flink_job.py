@@ -3,6 +3,13 @@ import math
 import base64
 import boto3
 from decimal import Decimal
+
+import io
+from datetime import datetime, timezone
+import pyarrow as pa
+import pyarrow.parquet as pq
+from dotenv import load_dotenv
+
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
@@ -10,6 +17,9 @@ from pyflink.datastream.functions import KeyedCoProcessFunction, KeyedProcessFun
 from pyflink.datastream.state import ValueStateDescriptor, MapStateDescriptor
 from pyflink.common.typeinfo import Types
 from google.transit import gtfs_realtime_pb2
+
+# Set up
+load_dotenv()
 
 JAR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flink-sql-connector-kafka-3.1.0-1.18.jar")
 
@@ -20,7 +30,7 @@ BUNCHING_TIME_WINDOW_SECONDS = 120
 # DynamoDB table for storing last known vehicle state
 DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
 AWS_REGION = "ap-southeast-2"
-
+S3_BUCKET_NAME = os.environ["S3_BUCKET_NAME"]
 
 def decode_vehicle_entity(raw_str: str) -> dict:
     raw_bytes = base64.b64decode(raw_str)
@@ -149,6 +159,7 @@ class BunchingDetectionFunction(KeyedProcessFunction):
         result["is_bunching"] = is_bunching
         yield result
 
+
 class DynamoDBSinkFunction(MapFunction):
     """
     Writes each enriched vehicle record to DynamoDB table.
@@ -169,6 +180,45 @@ class DynamoDBSinkFunction(MapFunction):
             "is_bunching": value["is_bunching"],
         })
         return value
+
+
+
+class S3ParquetSinkFunction(KeyedProcessFunction):
+    """
+    Buffers enriched vehicle records and flushes them to S3 as a
+    Parquet file roughly once a minute.
+    """
+
+    FLUSH_INTERVAL_MS = 60000
+
+    def open(self, runtime_context: RuntimeContext):
+        self.buffer = []
+        self.s3_client = boto3.client("s3", region_name=AWS_REGION)
+
+    def process_element(self, value, ctx):
+        self.buffer.append(value)
+        if len(self.buffer) == 1:
+            ctx.timer_service().register_processing_time_timer(
+                ctx.timer_service().current_processing_time() + self.FLUSH_INTERVAL_MS
+            )
+        yield value
+
+    def on_timer(self, timestamp, ctx):
+        if self.buffer:
+            self._flush_to_s3()
+
+    def _flush_to_s3(self):
+        table = pa.Table.from_pylist(self.buffer)
+        buf = io.BytesIO()
+        pq.write_table(table, buf)
+        buf.seek(0)
+
+        now = datetime.now(timezone.utc)
+        key = f"year={now.year}/month={now.month:02d}/day={now.day:02d}/part-{now.strftime('%H%M%S')}.parquet"
+        self.s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=key, Body=buf.getvalue())
+
+        self.buffer = []
+
 
 def run():
     env = StreamExecutionEnvironment.get_execution_environment()
@@ -211,9 +261,12 @@ def run():
     keyed_by_route = enriched.key_by(lambda v: v["route_id"], key_type=Types.STRING())
     with_bunching = keyed_by_route.process(BunchingDetectionFunction())
 
-    # Write the final enriched records to DynamoDB
-    written_to_dynamodb = with_bunching.map(DynamoDBSinkFunction())
-    written_to_dynamodb.print()
+    # Sink 1: live state, read by the dashboard
+    with_bunching.map(DynamoDBSinkFunction()).print()
+
+    # Sink 2: historical batches for KPI/trend analysis
+    with_bunching.key_by(lambda v: "all", key_type=Types.STRING()) \
+        .process(S3ParquetSinkFunction()).print()
 
     env.execute("attach_delay_job")
 
