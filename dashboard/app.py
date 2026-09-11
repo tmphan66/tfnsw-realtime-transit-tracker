@@ -24,6 +24,9 @@ def fetch_live_vehicles() -> pd.DataFrame:
     df = pd.DataFrame(items)
     for col in ["latitude", "longitude", "delay_seconds", "timestamp"]:
         df[col] = df[col].astype(float)
+    if "route_short_name" not in df.columns:
+        df["route_short_name"] = df["route_id"]
+    df["route_short_name"] = df["route_short_name"].fillna(df["route_id"])
     return df
 
 
@@ -67,6 +70,14 @@ df = fetch_live_vehicles()
 if df.empty:
     st.warning("No live vehicle data yet. Make sure the producer and Flink job are running.")
 else:
+    with st.sidebar:
+        st.header("Filters")
+        all_routes = sorted(df["route_short_name"].unique())
+        selected_routes = st.multiselect("Route", all_routes, default=[])
+
+    if selected_routes:
+        df = df[df["route_short_name"].isin(selected_routes)]
+
     df["color"] = df.apply(lambda row: delay_color(row["delay_seconds"], row["is_bunching"]), axis=1)
 
     col1, col2, col3 = st.columns(3)
@@ -85,8 +96,7 @@ else:
     view_state = pdk.ViewState(latitude=-33.87, longitude=151.21, zoom=10)
     st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
 
-    st.dataframe(df[["vehicle_id", "route_id", "delay_seconds", "is_bunching"]].sort_values("delay_seconds", ascending=False))
-
+    st.dataframe(df[["vehicle_id", "agency_id", "route_short_name", "delay_seconds", "is_bunching"]].sort_values("delay_seconds", ascending=False))
     st.subheader("Historical delay trend")
     history_df = fetch_historical_delay_trend()
 
