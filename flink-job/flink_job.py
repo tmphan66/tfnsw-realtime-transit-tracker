@@ -27,6 +27,9 @@ JAR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flink-sql-c
 BUNCHING_DISTANCE_METERS = 500
 BUNCHING_TIME_WINDOW_SECONDS = 120
 
+# Maximum difference in compass bearing (0-360) between two vehicles to be considered "bunching"
+BUNCHING_MAX_BEARING_DIFF_DEGREES = 45 
+
 # DynamoDB table for storing last known vehicle state
 DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
 AWS_REGION = "ap-southeast-2"
@@ -51,6 +54,7 @@ def decode_vehicle_entity(raw_str: str) -> dict:
         "trip_id": trip_id,
         "latitude": vehicle.position.latitude,
         "longitude": vehicle.position.longitude,
+        "bearing": vehicle.position.bearing,
         "timestamp": vehicle.timestamp,
     }
 
@@ -99,6 +103,14 @@ def haversine_distance_meters(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def bearing_difference_degrees(bearing1, bearing2):
+    """
+    Smallest angle between two compass bearings (0-360), accounting for wraparound 
+    """
+    diff = abs(bearing1 - bearing2) % 360
+    return min(diff, 360 - diff)
+
+
 class AttachDelayFunction(KeyedCoProcessFunction):
     """
     Joins the vehicle-positions stream with the trip-updates stream,
@@ -139,21 +151,25 @@ class BunchingDetectionFunction(KeyedProcessFunction):
         vehicle_id = value["vehicle_id"]
         lat = value["latitude"]
         lon = value["longitude"]
+        bearing = value["bearing"]
         ts = value["timestamp"]
 
         is_bunching = False
         for other_vehicle_id in list(self.vehicle_positions.keys()):
             if other_vehicle_id == vehicle_id:
                 continue
-            other_lat, other_lon, other_ts = self.vehicle_positions.get(other_vehicle_id)
+            other_lat, other_lon, other_bearing, other_ts = self.vehicle_positions.get(other_vehicle_id)
             if abs(ts - other_ts) > BUNCHING_TIME_WINDOW_SECONDS:
                 continue
             distance = haversine_distance_meters(lat, lon, other_lat, other_lon)
-            if distance <= BUNCHING_DISTANCE_METERS:
-                is_bunching = True
-                break
+            if distance > BUNCHING_DISTANCE_METERS:
+                continue
+            if bearing_difference_degrees(bearing, other_bearing) > BUNCHING_MAX_BEARING_DIFF_DEGREES:
+                continue
+            is_bunching = True
+            break
 
-        self.vehicle_positions.put(vehicle_id, (lat, lon, ts))
+        self.vehicle_positions.put(vehicle_id, (lat, lon, bearing, ts))
 
         result = dict(value)
         result["is_bunching"] = is_bunching
@@ -206,6 +222,8 @@ class S3ParquetSinkFunction(KeyedProcessFunction):
     def on_timer(self, timestamp, ctx):
         if self.buffer:
             self._flush_to_s3()
+        return
+        yield  # unreachable, makes this a generator function
 
     def _flush_to_s3(self):
         table = pa.Table.from_pylist(self.buffer)
