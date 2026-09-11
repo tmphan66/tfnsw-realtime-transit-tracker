@@ -1,0 +1,7 @@
+streamlit
+streamlit_autorefresh
+pydeck
+boto3
+duckdb
+pandas
+python-dotenv
