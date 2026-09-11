@@ -6,7 +6,7 @@ from google.transit import gtfs_realtime_pb2
 from flink_job import decode_vehicle_entity, decode_trip_update_entity, haversine_distance_meters
 from flink_job import DynamoDBSinkFunction
 from flink_job import S3ParquetSinkFunction, S3_BUCKET_NAME
-from flink_job import bearing_difference_degrees
+from flink_job import bearing_difference_degrees, split_route_id
 
 def test_decode_vehicle_entity_parses_base64_encoded_vehicle():
     entity = gtfs_realtime_pb2.FeedEntity()
@@ -59,7 +59,9 @@ def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
 
     record = {
         "vehicle_id": "bus-1",
-        "route_id": "333",
+        "route_id": "2503_M90",
+        "agency_id": "2503",
+        "route_short_name": "M90",
         "trip_id": "trip-1",
         "latitude": -33.87,
         "longitude": 151.21,
@@ -73,6 +75,8 @@ def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
     mock_table.put_item.assert_called_once()
     written_item = mock_table.put_item.call_args[1]["Item"]
     assert written_item["vehicle_id"] == "bus-1"
+    assert written_item["agency_id"] == "2503"
+    assert written_item["route_short_name"] == "M90"
     assert written_item["latitude"] == Decimal("-33.87")
 
 
@@ -108,3 +112,14 @@ def test_bearing_difference_degrees_handles_wraparound():
 
 def test_bearing_difference_degrees_opposite_directions():
     assert bearing_difference_degrees(0, 180) == 180
+
+def test_split_route_id_splits_on_first_underscore():
+    assert split_route_id("2503_M90") == ("2503", "M90")
+
+
+def test_split_route_id_handles_multiple_underscores():
+    assert split_route_id("2606_2789") == ("2606", "2789")
+
+
+def test_split_route_id_falls_back_when_no_underscore():
+    assert split_route_id("333") == ("333", "333")

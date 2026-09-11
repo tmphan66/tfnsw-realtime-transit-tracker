@@ -35,6 +35,12 @@ DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
 AWS_REGION = "ap-southeast-2"
 S3_BUCKET_NAME = os.environ["S3_BUCKET_NAME"]
 
+def split_route_id(route_id: str) -> tuple:
+    parts = route_id.split("_", 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return route_id, route_id
+
 def decode_vehicle_entity(raw_str: str) -> dict:
     raw_bytes = base64.b64decode(raw_str)
     entity = gtfs_realtime_pb2.FeedEntity()
@@ -48,9 +54,14 @@ def decode_vehicle_entity(raw_str: str) -> dict:
     if not trip_id:
         return None
 
+    route_id = vehicle.trip.route_id
+    agency_id, route_short_name = split_route_id(route_id)
+
     return {
         "vehicle_id": vehicle.vehicle.id,
-        "route_id": vehicle.trip.route_id,
+        "route_id": route_id,
+        "agency_id": agency_id,
+        "route_short_name": route_short_name,
         "trip_id": trip_id,
         "latitude": vehicle.position.latitude,
         "longitude": vehicle.position.longitude,
@@ -188,6 +199,8 @@ class DynamoDBSinkFunction(MapFunction):
         self.table.put_item(Item={
             "vehicle_id": value["vehicle_id"],
             "route_id": value["route_id"],
+            "agency_id": value["agency_id"],
+            "route_short_name": value["route_short_name"],
             "trip_id": value["trip_id"],
             "latitude": Decimal(str(value["latitude"])),
             "longitude": Decimal(str(value["longitude"])),
