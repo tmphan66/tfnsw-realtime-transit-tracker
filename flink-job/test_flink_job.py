@@ -6,7 +6,7 @@ from google.transit import gtfs_realtime_pb2
 from flink_job import decode_vehicle_entity, decode_trip_update_entity, haversine_distance_meters
 from flink_job import DynamoDBSinkFunction
 from flink_job import S3ParquetSinkFunction, S3_BUCKET_NAME
-
+from flink_job import bearing_difference_degrees
 
 def test_decode_vehicle_entity_parses_base64_encoded_vehicle():
     entity = gtfs_realtime_pb2.FeedEntity()
@@ -75,7 +75,6 @@ def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
     assert written_item["vehicle_id"] == "bus-1"
     assert written_item["latitude"] == Decimal("-33.87")
 
-from flink_job import S3ParquetSinkFunction, S3_BUCKET_NAME
 
 @patch("flink_job.boto3.client")
 def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
@@ -97,3 +96,15 @@ def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
     assert call_kwargs["Bucket"] == S3_BUCKET_NAME
     assert call_kwargs["Key"].endswith(".parquet")
     assert sink.buffer == []
+
+
+def test_bearing_difference_degrees_simple_case():
+    assert bearing_difference_degrees(90, 100) == 10
+
+
+def test_bearing_difference_degrees_handles_wraparound():
+    assert bearing_difference_degrees(350, 10) == 20
+
+
+def test_bearing_difference_degrees_opposite_directions():
+    assert bearing_difference_degrees(0, 180) == 180
