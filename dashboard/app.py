@@ -64,6 +64,7 @@ def delay_color(delay_seconds: float, is_bunching: bool) -> list:
 st_autorefresh(interval=15000, key="refresh")
 
 st.title("TfNSW Sydney Real-Time Transit Tracker")
+st.caption(f"Last updated: {pd.Timestamp.now(tz='Australia/Sydney').strftime('%H:%M:%S')}")
 
 df = fetch_live_vehicles()
 
@@ -72,9 +73,14 @@ if df.empty:
 else:
     with st.sidebar:
         st.header("Filters")
-        all_routes = sorted(df["route_short_name"].unique())
-        selected_routes = st.multiselect("Route", all_routes, default=[])
+        all_agencies = sorted(df["agency_id"].unique())
+        selected_agencies = st.multiselect("Agency", all_agencies, default=[], key="agency_filter")
 
+        all_routes = sorted(df["route_short_name"].unique())
+        selected_routes = st.multiselect("Route", all_routes, default=[], key="route_filter")
+
+    if selected_agencies:
+        df = df[df["agency_id"].isin(selected_agencies)]
     if selected_routes:
         df = df[df["route_short_name"].isin(selected_routes)]
 
@@ -84,6 +90,11 @@ else:
     col1.metric("Active vehicles", len(df))
     col2.metric("Avg delay (s)", round(df["delay_seconds"].mean(), 1))
     col3.metric("Bunching now", int(df["is_bunching"].sum()))
+
+    legend_col1, legend_col2, legend_col3 = st.columns(3)
+    legend_col1.markdown("🟢 On time")
+    legend_col2.markdown("🟠 Delayed (>5 min)")
+    legend_col3.markdown("🔴 Bunching")
 
     layer = pdk.Layer(
         "ScatterplotLayer",
@@ -97,6 +108,7 @@ else:
     st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
 
     st.dataframe(df[["vehicle_id", "agency_id", "route_short_name", "delay_seconds", "is_bunching"]].sort_values("delay_seconds", ascending=False))
+
     st.subheader("Historical delay trend")
     history_df = fetch_historical_delay_trend()
 
