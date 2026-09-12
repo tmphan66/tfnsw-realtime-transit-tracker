@@ -1,0 +1,21 @@
+name: 'transit_analytics'
+version: '1.0.0'
+config-version: 2
+
+profile: 'transit_analytics'
+
+model-paths: ["models"]
+
+vars:
+  s3_bucket_name: "transit-tracker-history-154320462270"
+
+on-run-start:
+  - "SET s3_region='ap-southeast-2';"
+  - "CREATE SECRET IF NOT EXISTS (TYPE s3, PROVIDER credential_chain);"
+
+models:
+  transit_analytics:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
