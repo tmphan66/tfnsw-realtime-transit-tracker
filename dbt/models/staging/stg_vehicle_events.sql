@@ -11,3 +11,7 @@ SELECT
     delay_seconds,
     is_bunching
 FROM read_parquet('s3://{{ var("s3_bucket_name") }}/**/*.parquet')
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY vehicle_id, to_timestamp(timestamp)
+    ORDER BY delay_seconds, is_bunching
+) = 1
