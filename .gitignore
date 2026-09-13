@@ -228,3 +228,8 @@ infra/terraform/*.tfvars
 
 # Flink
 flink-job/*.jar
+
+# dbt
+dbt/*.duckdb
+dbt/target/
+dbt/logs/

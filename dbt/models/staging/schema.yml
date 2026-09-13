@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: stg_vehicle_events
+    columns:
+      - name: vehicle_id
+        tests: [not_null]
+      - name: route_id
+        tests: [not_null]

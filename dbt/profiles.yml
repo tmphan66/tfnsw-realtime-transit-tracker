@@ -1,0 +1,8 @@
+transit_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: 'transit_analytics.duckdb'
+      extensions:
+        - httpfs
