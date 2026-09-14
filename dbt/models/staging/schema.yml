@@ -10,8 +10,9 @@ models:
       - name: delay_seconds
         tests:
           - dbt_utils.accepted_range:
-              min_value: -3600
-              max_value: 7200
+              arguments:
+                min_value: -3600
+                max_value: 7200
               config:
                 severity: warn
     tests:

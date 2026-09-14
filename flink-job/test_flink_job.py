@@ -85,7 +85,7 @@ def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
     mock_s3 = MagicMock()
     mock_boto3_client.return_value = mock_s3
 
-    sink = S3ParquetSinkFunction()
+    sink = S3ParquetSinkFunction("silver/vehicle-events")
     sink.open(None)
     sink.buffer = [{
         "vehicle_id": "bus-1", "route_id": "333", "trip_id": "t1",
@@ -98,9 +98,9 @@ def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
     mock_s3.put_object.assert_called_once()
     call_kwargs = mock_s3.put_object.call_args[1]
     assert call_kwargs["Bucket"] == S3_BUCKET_NAME
+    assert call_kwargs["Key"].startswith("silver/vehicle-events/")
     assert call_kwargs["Key"].endswith(".parquet")
     assert sink.buffer == []
-
 
 def test_bearing_difference_degrees_simple_case():
     assert bearing_difference_degrees(90, 100) == 10
