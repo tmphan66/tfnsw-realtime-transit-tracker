@@ -214,11 +214,14 @@ class DynamoDBSinkFunction(MapFunction):
 
 class S3ParquetSinkFunction(KeyedProcessFunction):
     """
-    Buffers enriched vehicle records and flushes them to S3 as a
+    Buffers records and flushes them to S3 as a
     Parquet file roughly once a minute.
     """
 
     FLUSH_INTERVAL_MS = 60000
+
+    def __init__(self, s3_key_prefix: str):
+        self.s3_key_prefix = s3_key_prefix
 
     def open(self, runtime_context: RuntimeContext):
         self.buffer = []
@@ -245,7 +248,7 @@ class S3ParquetSinkFunction(KeyedProcessFunction):
         buf.seek(0)
 
         now = datetime.now(timezone.utc)
-        key = f"year={now.year}/month={now.month:02d}/day={now.day:02d}/part-{now.strftime('%H%M%S')}.parquet"
+        key = f"{self.s3_key_prefix}/year={now.year}/month={now.month:02d}/day={now.day:02d}/part-{now.strftime('%H%M%S')}.parquet"
         self.s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=key, Body=buf.getvalue())
 
         self.buffer = []
@@ -282,22 +285,24 @@ def run():
         .filter(lambda v: v is not None)
     )
 
-    # Key the two streams by trip_id and connect them to attach delay information to vehicle positions
+    # Bronze: raw decoded records, before any enrichment
+    positions_stream.key_by(lambda v: "all", key_type=Types.STRING()) \
+        .process(S3ParquetSinkFunction("bronze/vehicle-positions"))
+    trip_updates_stream.key_by(lambda v: "all", key_type=Types.STRING()) \
+        .process(S3ParquetSinkFunction("bronze/trip-updates"))
+
     keyed_positions = positions_stream.key_by(lambda v: v["trip_id"], key_type=Types.STRING())
     keyed_trip_updates = trip_updates_stream.key_by(lambda v: v["trip_id"], key_type=Types.STRING())
 
     enriched = keyed_positions.connect(keyed_trip_updates).process(AttachDelayFunction())
 
-    # Key the enriched stream by route_id and detect bunching
     keyed_by_route = enriched.key_by(lambda v: v["route_id"], key_type=Types.STRING())
     with_bunching = keyed_by_route.process(BunchingDetectionFunction())
 
-    # Sink 1: live state, read by the dashboard
+    # Silver: enriched, conformed records — live state + historical analytics source
     with_bunching.map(DynamoDBSinkFunction()).print()
-
-    # Sink 2: historical batches for KPI/trend analysis
     with_bunching.key_by(lambda v: "all", key_type=Types.STRING()) \
-        .process(S3ParquetSinkFunction()).print()
+        .process(S3ParquetSinkFunction("silver/vehicle-events")).print()
 
     env.execute("attach_delay_job")
 

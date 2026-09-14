@@ -234,3 +234,6 @@ dbt/*.duckdb
 dbt/target/
 dbt/logs/
 dbt/dbt_packages/
+
+#  data files
+data/*.zip
