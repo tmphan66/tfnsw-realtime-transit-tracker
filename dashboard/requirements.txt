@@ -1,5 +1,4 @@
 streamlit
-streamlit_autorefresh
 pydeck
 boto3
 duckdb
