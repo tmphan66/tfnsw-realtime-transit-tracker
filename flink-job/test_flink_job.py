@@ -1,12 +1,20 @@
 import base64
-import pytest
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
+
+import pytest
 from google.transit import gtfs_realtime_pb2
-from flink_job import decode_vehicle_entity, decode_trip_update_entity, haversine_distance_meters
-from flink_job import DynamoDBSinkFunction
-from flink_job import S3ParquetSinkFunction, S3_BUCKET_NAME
-from flink_job import bearing_difference_degrees, split_route_id
+
+from flink_job import (
+    decode_vehicle_entity,
+    decode_trip_update_entity,
+    haversine_distance_meters,
+    bearing_difference_degrees,
+    split_route_id,
+    DynamoDBSinkFunction,
+    S3ParquetSinkFunction,
+    S3_BUCKET_NAME,
+)
 
 def test_decode_vehicle_entity_parses_base64_encoded_vehicle():
     entity = gtfs_realtime_pb2.FeedEntity()
@@ -21,11 +29,11 @@ def test_decode_vehicle_entity_parses_base64_encoded_vehicle():
     encoded = base64.b64encode(entity.SerializeToString()).decode("ascii")
     result = decode_vehicle_entity(encoded)
 
-
     assert result["vehicle_id"] == "bus-789"
     assert result["route_id"] == "333"
     assert result["latitude"] == pytest.approx(-33.87, abs=1e-4)
     assert result["longitude"] == pytest.approx(151.21, abs=1e-4)
+
 
 def test_decode_trip_update_extracts_delay():
     entity = gtfs_realtime_pb2.FeedEntity()
@@ -40,14 +48,40 @@ def test_decode_trip_update_extracts_delay():
     assert result["trip_id"] == "trip-42"
     assert result["delay_seconds"] == 180
 
+
 def test_haversine_distance_meters_same_point_is_zero():
     assert haversine_distance_meters(-33.87, 151.21, -33.87, 151.21) == pytest.approx(0, abs=1e-6)
 
 
 def test_haversine_distance_meters_known_distance():
-    # roughly 111km per degree of latitude
+    # Roughly 111km per degree of latitude.
     distance = haversine_distance_meters(-33.0, 151.0, -34.0, 151.0)
     assert distance == pytest.approx(111000, rel=0.02)
+
+
+def test_bearing_difference_degrees_simple_case():
+    assert bearing_difference_degrees(90, 100) == 10
+
+
+def test_bearing_difference_degrees_handles_wraparound():
+    assert bearing_difference_degrees(350, 10) == 20
+
+
+def test_bearing_difference_degrees_opposite_directions():
+    assert bearing_difference_degrees(0, 180) == 180
+
+
+def test_split_route_id_splits_on_first_underscore():
+    assert split_route_id("2503_M90") == ("2503", "M90")
+
+
+def test_split_route_id_handles_multiple_underscores():
+    assert split_route_id("2606_2789") == ("2606", "2789")
+
+
+def test_split_route_id_falls_back_when_no_underscore():
+    assert split_route_id("333") == ("333", "333")
+
 
 @patch("flink_job.boto3.resource")
 def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
@@ -88,9 +122,14 @@ def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
     sink = S3ParquetSinkFunction("silver/vehicle-events")
     sink.open(None)
     sink.buffer = [{
-        "vehicle_id": "bus-1", "route_id": "333", "trip_id": "t1",
-        "latitude": -33.87, "longitude": 151.21, "timestamp": 1700000000,
-        "delay_seconds": 10, "is_bunching": False,
+        "vehicle_id": "bus-1",
+        "route_id": "333",
+        "trip_id": "t1",
+        "latitude": -33.87,
+        "longitude": 151.21,
+        "timestamp": 1700000000,
+        "delay_seconds": 10,
+        "is_bunching": False,
     }]
 
     sink._flush_to_s3()
@@ -101,25 +140,3 @@ def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
     assert call_kwargs["Key"].startswith("silver/vehicle-events/")
     assert call_kwargs["Key"].endswith(".parquet")
     assert sink.buffer == []
-
-def test_bearing_difference_degrees_simple_case():
-    assert bearing_difference_degrees(90, 100) == 10
-
-
-def test_bearing_difference_degrees_handles_wraparound():
-    assert bearing_difference_degrees(350, 10) == 20
-
-
-def test_bearing_difference_degrees_opposite_directions():
-    assert bearing_difference_degrees(0, 180) == 180
-
-def test_split_route_id_splits_on_first_underscore():
-    assert split_route_id("2503_M90") == ("2503", "M90")
-
-
-def test_split_route_id_handles_multiple_underscores():
-    assert split_route_id("2606_2789") == ("2606", "2789")
-
-
-def test_split_route_id_falls_back_when_no_underscore():
-    assert split_route_id("333") == ("333", "333")
