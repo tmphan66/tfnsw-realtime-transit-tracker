@@ -1,39 +1,45 @@
-import os
-import math
 import base64
-import boto3
+import io
+import math
+import os
+from datetime import datetime, timezone
 from decimal import Decimal
 
-import io
-from datetime import datetime, timezone
+import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
 from dotenv import load_dotenv
-
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.common.serialization import SimpleStringSchema
-from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
-from pyflink.datastream.functions import KeyedCoProcessFunction, KeyedProcessFunction, RuntimeContext, MapFunction
-from pyflink.datastream.state import ValueStateDescriptor, MapStateDescriptor
-from pyflink.common.typeinfo import Types
 from google.transit import gtfs_realtime_pb2
+from pyflink.common.serialization import SimpleStringSchema
+from pyflink.common.typeinfo import Types
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
+from pyflink.datastream.functions import (
+    KeyedCoProcessFunction,
+    KeyedProcessFunction,
+    MapFunction,
+    RuntimeContext,
+)
+from pyflink.datastream.state import MapStateDescriptor, ValueStateDescriptor
 
 # Set up
 load_dotenv()
 
 JAR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flink-sql-connector-kafka-3.1.0-1.18.jar")
 
-# Two vehicles on the same route within this distance and time window are flagged as "bunching"
+# Two vehicles on the same route within this distance 
+# and time window are flagged as "bunching"
 BUNCHING_DISTANCE_METERS = 500
 BUNCHING_TIME_WINDOW_SECONDS = 120
 
-# Maximum difference in compass bearing (0-360) between two vehicles to be considered "bunching"
+# Maximum difference in compass bearing (0-360) between 
+# two vehicles to be considered "bunching"
 BUNCHING_MAX_BEARING_DIFF_DEGREES = 45 
 
 # DynamoDB table for storing last known vehicle state
 DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
 AWS_REGION = "ap-southeast-2"
-S3_BUCKET_NAME = os.environ["S3_BUCKET_NAME"]
+S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
 
 def split_route_id(route_id: str) -> tuple:
     parts = route_id.split("_", 1)
@@ -224,6 +230,8 @@ class S3ParquetSinkFunction(KeyedProcessFunction):
         self.s3_key_prefix = s3_key_prefix
 
     def open(self, runtime_context: RuntimeContext):
+        if not S3_BUCKET_NAME:
+            raise RuntimeError("S3_BUCKET_NAME environment variable is not set")
         self.buffer = []
         self.s3_client = boto3.client("s3", region_name=AWS_REGION)
 

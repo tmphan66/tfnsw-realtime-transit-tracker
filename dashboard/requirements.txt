@@ -3,4 +3,7 @@ pydeck
 boto3
 duckdb
 pandas
+altair
+numpy
 python-dotenv
+pytest

@@ -1,5 +1,6 @@
 apache-flink==1.18.1
 boto3
 pyarrow
-dbt-core
-dbt-duckdb
+python-dotenv
+kafka-python
+pytest

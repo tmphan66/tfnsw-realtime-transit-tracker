@@ -1,19 +1,19 @@
+import base64
+import logging
 import os
 import time
-import logging
-import base64
 
 import requests
 from dotenv import load_dotenv
-from kafka import KafkaProducer
 from google.transit import gtfs_realtime_pb2
+from kafka import KafkaProducer
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ["TFNSW_API_KEY"]
+API_KEY = os.environ.get("TFNSW_API_KEY")
 VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses"
 TRIP_UPDATES_URL = "https://api.transport.nsw.gov.au/v1/gtfs/realtime/buses"
 VEHICLE_POSITIONS_TOPIC = "vehicle-positions-raw"
@@ -45,6 +45,9 @@ def publish_feed(producer: KafkaProducer, url: str, topic: str) -> int:
 
 
 def run():
+    if not API_KEY:
+        raise RuntimeError("TFNSW_API_KEY environment variable is not set")
+    
     producer = KafkaProducer(
         bootstrap_servers=BROKER,
         value_serializer=lambda v: v,
@@ -56,7 +59,7 @@ def run():
             logger.info("Published %d vehicle position updates", position_count)
         except requests.RequestException as e:
             logger.warning("Vehicle positions API request failed: %s", e)
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             logger.error("Unexpected error (vehicle positions): %s", e)
 
         try:
@@ -64,7 +67,7 @@ def run():
             logger.info("Published %d trip updates", trip_update_count)
         except requests.RequestException as e:
             logger.warning("Trip updates API request failed: %s", e)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - intentional: keep the poll loop alive on any unexpected error
             logger.error("Unexpected error (trip updates): %s", e)
 
         time.sleep(POLL_INTERVAL_SECONDS)
