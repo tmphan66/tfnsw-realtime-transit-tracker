@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flink_job import (
-    S3_BUCKET_NAME,
     DynamoDBSinkFunction,
     S3ParquetSinkFunction,
     bearing_difference_degrees,
@@ -115,6 +114,7 @@ def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
 
 
 @patch("flink_job.boto3.client")
+@patch("flink_job.S3_BUCKET_NAME", "test-bucket")
 def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
     mock_s3 = MagicMock()
     mock_boto3_client.return_value = mock_s3
@@ -136,7 +136,7 @@ def test_s3_parquet_sink_flush_writes_expected_data(mock_boto3_client):
 
     mock_s3.put_object.assert_called_once()
     call_kwargs = mock_s3.put_object.call_args[1]
-    assert call_kwargs["Bucket"] == S3_BUCKET_NAME
+    assert call_kwargs["Bucket"] == "test-bucket"
     assert call_kwargs["Key"].startswith("silver/vehicle-events/")
     assert call_kwargs["Key"].endswith(".parquet")
     assert sink.buffer == []
