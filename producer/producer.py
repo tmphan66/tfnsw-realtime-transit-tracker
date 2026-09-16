@@ -13,7 +13,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ["TFNSW_API_KEY"]
+API_KEY = os.environ.get("TFNSW_API_KEY")
 VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses"
 TRIP_UPDATES_URL = "https://api.transport.nsw.gov.au/v1/gtfs/realtime/buses"
 VEHICLE_POSITIONS_TOPIC = "vehicle-positions-raw"
@@ -45,6 +45,9 @@ def publish_feed(producer: KafkaProducer, url: str, topic: str) -> int:
 
 
 def run():
+    if not API_KEY:
+        raise RuntimeError("TFNSW_API_KEY environment variable is not set")
+    
     producer = KafkaProducer(
         bootstrap_servers=BROKER,
         value_serializer=lambda v: v,
