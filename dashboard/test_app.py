@@ -1,12 +1,12 @@
 import pandas as pd
 import pytest
 from app import (
-    filter_valid_coordinates,
-    add_operator_name,
     add_delay_color,
-    truncate_label,
-    compute_view_state,
+    add_operator_name,
     build_recent_silver_paths,
+    compute_view_state,
+    filter_valid_coordinates,
+    truncate_label,
 )
 
 

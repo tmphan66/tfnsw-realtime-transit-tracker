@@ -1,20 +1,20 @@
 import base64
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-from google.transit import gtfs_realtime_pb2
-
 from flink_job import (
-    decode_vehicle_entity,
-    decode_trip_update_entity,
-    haversine_distance_meters,
-    bearing_difference_degrees,
-    split_route_id,
+    S3_BUCKET_NAME,
     DynamoDBSinkFunction,
     S3ParquetSinkFunction,
-    S3_BUCKET_NAME,
+    bearing_difference_degrees,
+    decode_trip_update_entity,
+    decode_vehicle_entity,
+    haversine_distance_meters,
+    split_route_id,
 )
+from google.transit import gtfs_realtime_pb2
+
 
 def test_decode_vehicle_entity_parses_base64_encoded_vehicle():
     entity = gtfs_realtime_pb2.FeedEntity()

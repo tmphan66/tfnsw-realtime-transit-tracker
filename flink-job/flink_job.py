@@ -1,22 +1,26 @@
-import os
-import math
 import base64
-import boto3
+import io
+import math
+import os
+from datetime import datetime, timezone
 from decimal import Decimal
 
-import io
-from datetime import datetime, timezone
+import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
 from dotenv import load_dotenv
-
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.common.serialization import SimpleStringSchema
-from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
-from pyflink.datastream.functions import KeyedCoProcessFunction, KeyedProcessFunction, RuntimeContext, MapFunction
-from pyflink.datastream.state import ValueStateDescriptor, MapStateDescriptor
-from pyflink.common.typeinfo import Types
 from google.transit import gtfs_realtime_pb2
+from pyflink.common.serialization import SimpleStringSchema
+from pyflink.common.typeinfo import Types
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
+from pyflink.datastream.functions import (
+    KeyedCoProcessFunction,
+    KeyedProcessFunction,
+    MapFunction,
+    RuntimeContext,
+)
+from pyflink.datastream.state import MapStateDescriptor, ValueStateDescriptor
 
 # Set up
 load_dotenv()

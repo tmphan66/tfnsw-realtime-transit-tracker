@@ -1,5 +1,7 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from google.transit import gtfs_realtime_pb2
+
 from producer import decode_feed, fetch_raw_feed, publish_feed
 
 

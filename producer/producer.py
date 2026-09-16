@@ -1,12 +1,12 @@
+import base64
+import logging
 import os
 import time
-import logging
-import base64
 
 import requests
 from dotenv import load_dotenv
-from kafka import KafkaProducer
 from google.transit import gtfs_realtime_pb2
+from kafka import KafkaProducer
 
 load_dotenv()
 
@@ -56,7 +56,7 @@ def run():
             logger.info("Published %d vehicle position updates", position_count)
         except requests.RequestException as e:
             logger.warning("Vehicle positions API request failed: %s", e)
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             logger.error("Unexpected error (vehicle positions): %s", e)
 
         try:
@@ -64,7 +64,7 @@ def run():
             logger.info("Published %d trip updates", trip_update_count)
         except requests.RequestException as e:
             logger.warning("Trip updates API request failed: %s", e)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - intentional: keep the poll loop alive on any unexpected error
             logger.error("Unexpected error (trip updates): %s", e)
 
         time.sleep(POLL_INTERVAL_SECONDS)
