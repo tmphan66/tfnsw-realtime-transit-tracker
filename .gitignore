@@ -237,3 +237,5 @@ dbt/dbt_packages/
 
 #  data files
 data/*.zip
+
+local_state/
