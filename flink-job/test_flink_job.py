@@ -1,9 +1,9 @@
 import base64
+import sqlite3
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
-import sqlite3
 from flink_job import (
     DynamoDBSinkFunction,
     LocalFileSinkFunction,

@@ -2,10 +2,10 @@ import base64
 import io
 import math
 import os
+import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal
 
-import sqlite3
 import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
