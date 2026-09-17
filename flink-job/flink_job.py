@@ -2,6 +2,7 @@ import base64
 import io
 import math
 import os
+import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -27,14 +28,13 @@ load_dotenv()
 
 JAR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flink-sql-connector-kafka-3.1.0-1.18.jar")
 
-# Two vehicles on the same route within this distance 
-# and time window are flagged as "bunching"
-BUNCHING_DISTANCE_METERS = 500
+LIVE_STATE_BACKEND = os.environ.get("LIVE_STATE_BACKEND", "local").lower()
+LOCAL_STATE_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "local_state", "vehicle_state.db")
+
+BUNCHING_DISTANCE_METERS = 500 # in meters
 BUNCHING_TIME_WINDOW_SECONDS = 120
 
-# Maximum difference in compass bearing (0-360) between 
-# two vehicles to be considered "bunching"
-BUNCHING_MAX_BEARING_DIFF_DEGREES = 45 
+BUNCHING_MAX_BEARING_DIFF_DEGREES = 45
 
 # DynamoDB table for storing last known vehicle state
 DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
@@ -217,6 +217,56 @@ class DynamoDBSinkFunction(MapFunction):
         return value
 
 
+class LocalFileSinkFunction(MapFunction):
+    """
+    Writes each enriched vehicle record to a local SQLite database.
+    """
+
+    def open(self, runtime_context: RuntimeContext):
+        os.makedirs(os.path.dirname(LOCAL_STATE_DB_PATH), exist_ok=True)
+        self.conn = sqlite3.connect(LOCAL_STATE_DB_PATH, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL;")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS vehicle_state (
+                vehicle_id TEXT PRIMARY KEY,
+                route_id TEXT,
+                agency_id TEXT,
+                route_short_name TEXT,
+                trip_id TEXT,
+                latitude REAL,
+                longitude REAL,
+                timestamp INTEGER,
+                delay_seconds INTEGER,
+                is_bunching INTEGER
+            )
+        """)
+        self.conn.commit()
+
+    def map(self, value):
+        self.conn.execute("""
+            INSERT INTO vehicle_state (
+                vehicle_id, route_id, agency_id, route_short_name, trip_id,
+                latitude, longitude, timestamp, delay_seconds, is_bunching
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(vehicle_id) DO UPDATE SET
+                route_id=excluded.route_id,
+                agency_id=excluded.agency_id,
+                route_short_name=excluded.route_short_name,
+                trip_id=excluded.trip_id,
+                latitude=excluded.latitude,
+                longitude=excluded.longitude,
+                timestamp=excluded.timestamp,
+                delay_seconds=excluded.delay_seconds,
+                is_bunching=excluded.is_bunching
+        """, (
+            value["vehicle_id"], value["route_id"], value["agency_id"], value["route_short_name"],
+            value["trip_id"], value["latitude"], value["longitude"],
+            value["timestamp"], value["delay_seconds"], int(value["is_bunching"]),
+        ))
+        self.conn.commit()
+        return value
+
+
 
 class S3ParquetSinkFunction(KeyedProcessFunction):
     """
@@ -308,7 +358,10 @@ def run():
     with_bunching = keyed_by_route.process(BunchingDetectionFunction())
 
     # Silver: enriched, conformed records — live state + historical analytics source
-    with_bunching.map(DynamoDBSinkFunction()).print()
+    if LIVE_STATE_BACKEND == "dynamodb":
+        with_bunching.map(DynamoDBSinkFunction()).print()
+    else:
+        with_bunching.map(LocalFileSinkFunction()).print()
     with_bunching.key_by(lambda v: "all", key_type=Types.STRING()) \
         .process(S3ParquetSinkFunction("silver/vehicle-events")).print()
 
