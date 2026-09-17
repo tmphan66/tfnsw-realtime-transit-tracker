@@ -1,0 +1,10 @@
+venv/
+.git/
+local_state/
+**/__pycache__/
+*.pyc
+.env
+dbt/dbt_packages/
+dbt/target/
+dbt/*.duckdb
+data/

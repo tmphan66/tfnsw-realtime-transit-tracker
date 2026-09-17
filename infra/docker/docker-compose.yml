@@ -29,3 +29,16 @@ services:
       - "8080:8080"
     depends_on:
       - redpanda
+
+  producer:
+    build:
+      context: ../../producer
+      dockerfile: Dockerfile
+    container_name: producer
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BROKER: redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
