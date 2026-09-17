@@ -1,5 +1,6 @@
 import math
 import os
+import sqlite3
 
 import altair as alt
 import boto3
@@ -15,6 +16,9 @@ load_dotenv()
 AWS_REGION = "ap-southeast-2"
 DYNAMODB_TABLE_NAME = "transit-tracker-vehicle-state"
 DBT_DUCKDB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dbt", "transit_analytics.duckdb")
+
+LIVE_STATE_BACKEND = os.environ.get("LIVE_STATE_BACKEND", "local").lower()
+LOCAL_STATE_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "local_state", "vehicle_state.db")
 
 SYDNEY_METRO_VIEW = pdk.ViewState(latitude=-33.87, longitude=151.15, zoom=10.5)
 
@@ -37,6 +41,12 @@ st.set_page_config(page_title="TfNSW Sydney Real-Time Transit Tracker", layout="
 
 @st.cache_data(ttl=15)
 def fetch_live_vehicles() -> pd.DataFrame:
+    if LIVE_STATE_BACKEND == "dynamodb":
+        return _fetch_live_vehicles_dynamodb()
+    return _fetch_live_vehicles_local()
+
+
+def _fetch_live_vehicles_dynamodb() -> pd.DataFrame:
     table = boto3.resource("dynamodb", region_name=AWS_REGION).Table(DYNAMODB_TABLE_NAME)
     response = table.scan(
         ProjectionExpression="vehicle_id, route_id, agency_id, route_short_name, latitude, longitude, delay_seconds, is_bunching, #ts",
@@ -46,6 +56,26 @@ def fetch_live_vehicles() -> pd.DataFrame:
     if not items:
         return pd.DataFrame()
     df = pd.DataFrame(items)
+    return _normalize_live_vehicles_df(df)
+
+
+def _fetch_live_vehicles_local() -> pd.DataFrame:
+    if not os.path.exists(LOCAL_STATE_DB_PATH):
+        return pd.DataFrame()
+    con = sqlite3.connect(LOCAL_STATE_DB_PATH)
+    try:
+        df = pd.read_sql_query("SELECT * FROM vehicle_state", con)
+    except pd.errors.DatabaseError:
+        return pd.DataFrame()
+    finally:
+        con.close()
+    if df.empty:
+        return df
+    df["is_bunching"] = df["is_bunching"].astype(bool)
+    return _normalize_live_vehicles_df(df)
+
+
+def _normalize_live_vehicles_df(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["latitude", "longitude", "delay_seconds", "timestamp"]:
         df[col] = df[col].astype(float)
     if "route_short_name" not in df.columns:

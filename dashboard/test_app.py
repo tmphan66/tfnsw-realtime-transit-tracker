@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from app import (
     add_delay_color,
     add_operator_name,

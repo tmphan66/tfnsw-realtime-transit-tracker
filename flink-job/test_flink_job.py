@@ -3,8 +3,10 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+import sqlite3
 from flink_job import (
     DynamoDBSinkFunction,
+    LocalFileSinkFunction,
     S3ParquetSinkFunction,
     bearing_difference_degrees,
     decode_trip_update_entity,
@@ -112,6 +114,42 @@ def test_dynamodb_sink_writes_expected_item(mock_boto3_resource):
     assert written_item["route_short_name"] == "M90"
     assert written_item["latitude"] == Decimal("-33.87")
 
+
+def test_local_file_sink_upserts_vehicle_state(tmp_path, monkeypatch):
+    db_path = tmp_path / "vehicle_state.db"
+    monkeypatch.setattr("flink_job.LOCAL_STATE_DB_PATH", str(db_path))
+
+    sink = LocalFileSinkFunction()
+    sink.open(None)
+
+    record = {
+        "vehicle_id": "bus-1",
+        "route_id": "2503_M90",
+        "agency_id": "2503",
+        "route_short_name": "M90",
+        "trip_id": "trip-1",
+        "latitude": -33.87,
+        "longitude": 151.21,
+        "timestamp": 1700000000,
+        "delay_seconds": 90,
+        "is_bunching": False,
+    }
+    result = sink.map(record)
+    assert result == record
+
+    con = sqlite3.connect(str(db_path))
+    row = con.execute(
+        "SELECT vehicle_id, route_short_name, delay_seconds, is_bunching FROM vehicle_state WHERE vehicle_id = ?",
+        ("bus-1",),
+    ).fetchone()
+    assert row == ("bus-1", "M90", 90, 0)
+
+    # Upsert: same vehicle_id should overwrite, not duplicate
+    record["delay_seconds"] = 120
+    sink.map(record)
+    count = con.execute("SELECT COUNT(*) FROM vehicle_state").fetchone()[0]
+    assert count == 1
+    con.close()
 
 @patch("flink_job.boto3.client")
 @patch("flink_job.S3_BUCKET_NAME", "test-bucket")
